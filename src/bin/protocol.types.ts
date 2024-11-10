@@ -1,151 +1,186 @@
 import { EQSocketProtocolContentEncoding, EQSocketProtocolContentType, EQSocketProtocolMessageType } from './protocol.enums';
 
-//#region ПОЛЕЗНАЯ НАГРУЗКА
+//#region PAYLOAD
 /**
- * @description Универсальный тип для описания всех допустимых JSON-значений,
- * включая примитивы, массивы и объекты JSON.
+ * @description Universal type for describing all permissible JSON values,
+ * including primitives, arrays, and JSON objects.
  */
 export type IJSON = string | number | boolean | null | IJSONArray | IJSONObject;
 
 /**
- * @description Тип, представляющий массив JSON-значений.
- * Массив может содержать элементы любых типов, допустимых в JSON.
+ * @description Type representing an array of JSON values.
+ * The array can contain elements of any type allowed in JSON.
  */
 export interface IJSONArray extends Array<IJSON> {}
 
 /**
- * @description Тип, представляющий JSON-объект.
- * Ключи должны быть строками, а значения могут быть любого JSON-совместимого типа.
+ * @description Type representing a JSON object.
+ * Keys must be strings, and values can be of any JSON-compatible type.
  */
 export interface IJSONObject {
 	[key: string]: IJSON;
 }
 
 /**
- * @description Типы данных, которые могут быть переданы через протокол Q-SOCKET.
- * Включает примитивы, универсальный JSON-тип, Buffer и symbol.
+ * @description Data types that can be transmitted through the Q-SOCKET protocol.
+ * Includes primitives, a universal JSON type, Buffer, and symbol.
  *
- * - `undefined`: Отсутствие значения.
- * - `null`: Явное указание отсутствия значения.
- * - `boolean`: Логическое значение `true` или `false`.
- * - `number`: Числовое значение.
- * - `symbol`: Символ, уникальный идентификатор.
- * - `string`: Текстовое значение.
- * - `IJSON`: Универсальный JSON-тип, включающий примитивы, массивы и объекты.
- * - `Buffer`: Бинарные данные.
+ * - `undefined`: Absence of value.
+ * - `null`: Explicit indication of no value.
+ * - `boolean`: Logical `true` or `false`.
+ * - `number`: Numeric value.
+ * - `symbol`: Symbol, a unique identifier.
+ * - `string`: Text value.
+ * - `IJSON`: Universal JSON type, including primitives, arrays, and objects.
+ * - `Buffer`: Binary data.
  */
 export type TQSocketProtocolPayloadData = undefined | null | boolean | number | symbol | string | IJSON | Buffer;
 
 /**
- * @description Интерфейс полезной нагрузки
- * Содержит данные, а также информацию по их дальнейшей обработке
+ * @description Payload Interface
+ * Contains data as well as information for further processing
  */
 interface IQSocketProtocolPayload {
 	/**
-	 * Данные
+	 * Data to be transmitted.
 	 */
 	data: TQSocketProtocolPayloadData;
 
 	/**
-	 * Формат данных полезной нагрузки
-	 * Указывает тип данных в поле `payload`, например `STRING`, `JSON` или `BUFFER`.
+	 * Specifies the data format of the payload.
+	 * Defines the type of data in the `payload` field, such as `STRING`, `JSON`, or `BUFFER`.
 	 */
 	'Content-Type': EQSocketProtocolContentType;
 
 	/**
-	 * Декодирование полезной нагрузки
-	 * Указывает тип сжатия данных в `payload`, например `GZIP` или `DEFLATE`.
+	 * Specifies the encoding of the payload.
+	 * Defines the type of compression used for `payload`, such as `GZIP` or `DEFLATE`.
 	 */
 	'Content-Encoding': EQSocketProtocolContentEncoding;
 }
 //#endregion
 
-interface IQSocketProtocolMessageMeta {
-	/** Тип сообщения */
-	type: EQSocketProtocolMessageType;
+/**
+ * @description Base metadata interface for messages in the Q-SOCKET protocol.
+ */
+interface IQSocketProtocolMessageMetaBase {
 	/**
-	 * Уникальный идентификатор сообщения
-	 * Используется для отслеживания сообщений и связи ответов с запросами.
+	 * Type of the message.
+	 */
+	type: EQSocketProtocolMessageType;
+
+	/**
+	 * Unique identifier for the message.
+	 * Used for tracking messages and linking responses to requests.
 	 */
 	uuid: string;
 }
 
-export interface IQSocketProtocolMessageMetaData extends IQSocketProtocolMessageMeta {
-	/** Тип сообщения */
-	type: EQSocketProtocolMessageType.DATA;
+/**
+ * @description Metadata for data messages.
+ * Extends the base metadata interface to include specific details for data messages.
+ */
+export interface IQSocketProtocolMessageMetaData extends IQSocketProtocolMessageMetaBase {
 	/**
-	 * Пространство имён
-	 * Логическое пространство, к которому относится событие (например, разделение чата по комнатам).
+	 * Specifies that this is a data message type.
+	 */
+	type: EQSocketProtocolMessageType.DATA;
+
+	/**
+	 * Namespace associated with the event.
+	 * Provides a logical separation of events, e.g., separating chat rooms.
 	 */
 	namespace: string;
 
 	/**
-	 * Событие
-	 * Идентификатор события в рамках пространства имен.
+	 * Event identifier within the namespace.
 	 */
 	event: string;
 }
 
-export interface IQSocketProtocolMessageMetaAck extends IQSocketProtocolMessageMeta {
-	/** Тип сообщения */
+/**
+ * @description Metadata for acknowledgment messages.
+ * Used to confirm message receipt or processing.
+ */
+export interface IQSocketProtocolMessageMetaAck extends IQSocketProtocolMessageMetaBase {
+	/**
+	 * Specifies that this is an acknowledgment message type.
+	 */
 	type: EQSocketProtocolMessageType.ACK;
 }
 
-export interface IQSocketProtocolMessageMetaControl extends IQSocketProtocolMessageMeta {
-	/** Тип сообщения */
-	type: EQSocketProtocolMessageType.CONTROL;
+/**
+ * @description Metadata for control messages.
+ * Used for managing connections, session states, or other control operations.
+ */
+export interface IQSocketProtocolMessageMetaControl extends IQSocketProtocolMessageMetaBase {
 	/**
-	 * Пространство имён
-	 * Логическое пространство, к которому относится событие (например, разделение чата по комнатам).
+	 * Specifies that this is a control message type.
+	 */
+	type: EQSocketProtocolMessageType.CONTROL;
+
+	/**
+	 * Namespace associated with the control event.
+	 * Provides a logical separation of control events.
 	 */
 	namespace: string;
 }
 
+export type IQSocketProtocolMessageMeta = IQSocketProtocolMessageMetaData | IQSocketProtocolMessageMetaAck | IQSocketProtocolMessageMetaControl;
+
 /**
- * @description Общий интерфейс для всех вариантов протокола QSOCKET
+ * @description General interface for all QSOCKET protocol variants.
  *
- * Представляет базовые свойства, которые есть у всех сообщений в протоколе QSOCKET.
+ * Represents the essential properties that all messages in the QSOCKET protocol must have.
  */
 export interface IQSocketProtocolChunk {
 	/**
-	 * Дополнительные метаданные
-	 * Содержат служебную информацию, такую как название пространства имён, название события, временные метки, и прочее.
+	 * Contains metadata for the message.
+	 * Provides necessary information like namespace, event name, timestamps, etc.
 	 */
 	meta: IQSocketProtocolMessageMeta;
 
 	/**
-	 * @description Полезная нагрузка
+	 * Payload data of the message.
 	 */
 	payload: IQSocketProtocolPayload;
 }
 
+/**
+ * @description A complete Q-SOCKET protocol message, represented as an array of chunks.
+ */
 export type IQSocketProtocolMessage = IQSocketProtocolChunk[];
 
+/**
+ * @description Compressor interface for handling data compression and decompression.
+ * Defines methods for compressing and decompressing data in both GZIP and DEFLATE formats.
+ */
 export interface TQSocketProtocolCompressor {
 	/**
-	 * Сжимает данные с использованием GZIP
-	 * @param data Данные для сжатия
-	 * @returns Сжатые данные
+	 * Compresses data using the GZIP algorithm.
+	 * @param data Data to be compressed.
+	 * @returns A promise that resolves to the compressed data.
 	 */
 	toGzip(data: Buffer | Uint8Array): Promise<Buffer | Uint8Array>;
 
 	/**
-	 * Распаковывает данные, сжатые с использованием GZIP
-	 * @param data Сжатые данные
-	 * @returns Распакованные данные
+	 * Decompresses data that was compressed with the GZIP algorithm.
+	 * @param data Compressed data.
+	 * @returns A promise that resolves to the decompressed data.
 	 */
 	fromGzip(data: Buffer | Uint8Array): Promise<Buffer | Uint8Array>;
+
 	/**
-	 * Сжимает данные с использованием DEFLATE
-	 * @param data Данные для сжатия
-	 * @returns Сжатые данные
+	 * Compresses data using the DEFLATE algorithm.
+	 * @param data Data to be compressed.
+	 * @returns A promise that resolves to the compressed data.
 	 */
 	toDeflate(data: Buffer | Uint8Array): Promise<Buffer | Uint8Array>;
 
 	/**
-	 * Распаковывает данные, сжатые с использованием DEFLATE
-	 * @param data Сжатые данные
-	 * @returns Распакованные данные
+	 * Decompresses data that was compressed with the DEFLATE algorithm.
+	 * @param data Compressed data.
+	 * @returns A promise that resolves to the decompressed data.
 	 */
 	fromDeflate(data: Buffer | Uint8Array): Promise<Buffer | Uint8Array>;
 }

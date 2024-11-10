@@ -1,4 +1,4 @@
-// Реэкспорт всех типов и интерфейсов
+// Re-export all types and interfaces
 export type {
 	IJSON,
 	IQSocketProtocolChunk,
@@ -9,7 +9,9 @@ export type {
 	TQSocketProtocolCompressor,
 	TQSocketProtocolPayloadData,
 } from './bin/protocol.types';
-// Реэкспорт всех перечислений
+// Re-export all enums
 export { EQSocketProtocolMessageType, EQSocketProtocolContentEncoding, EQSocketProtocolContentType } from './bin/protocol.enums';
-// Реэкспорт протокола
+// Re-export all errors
+export { QSocketProtocolDecodeError, QSocketProtocolEncodeError } from './bin/protocol.errors';
+// Re-export protocol
 export { default as QSocketProtocol } from './bin/protocol';

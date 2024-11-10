@@ -1,30 +1,64 @@
+//#region Import types
+import type { IQSocketProtocolChunk, IQSocketProtocolMessage, TQSocketProtocolCompressor, TQSocketProtocolPayloadData } from './protocol.types';
+//#endregion
+
+//#region Import modules
 import { EQSocketProtocolContentEncoding, EQSocketProtocolContentType } from './protocol.enums';
+import { QSocketProtocolDecodeError, QSocketProtocolEncodeError } from './protocol.errors';
+import { hasBuffer, isBuffer } from './protocol.helpers';
+//#endregion
 
-import { IQSocketProtocolChunk, IQSocketProtocolMessage, TQSocketProtocolCompressor, TQSocketProtocolPayloadData } from './protocol.types';
-
-class QSocketProtocolEncodeError extends Error {}
-class QSocketProtocolDecodeError extends Error {}
-
-// Check if Buffer is available (Node.js environment)
-const hasBuffer = typeof Buffer !== 'undefined' && typeof Buffer.isBuffer === 'function';
-
-// Helper function to determine if an object is a Buffer
-function isBuffer(obj: any): obj is Buffer {
-	return hasBuffer && Buffer.isBuffer(obj);
-}
-
+/**
+ * The `QSocketProtocol` class implements a protocol for serializing and deserializing messages
+ * for data transmission, supporting compression and various payload data types.
+ *
+ * This class provides methods for encoding (`to`) and decoding (`from`) messages, allowing users to
+ * efficiently transmit data as structured messages. It handles payloads with support for data types
+ * such as JSON, strings, binary buffers, and more.
+ *
+ * Key Features:
+ * - Message serialization with support for metadata and payload data.
+ * - Message decoding, including header validation and decompression if necessary.
+ * - Message compression support (GZIP and DEFLATE) to reduce data size during transmission.
+ * - Configurable maximum uncompressed data size and support for custom compressors.
+ *
+ * Usage:
+ * Useful in high-performance data transmission systems where minimizing latency and optimizing
+ * data size is critical. Compatible with both Node.js and browser environments.
+ *
+ * @example
+ * // Creating an instance with a GZIP compressor
+ * const protocol = new QSocketProtocol(compressor, 1024);
+ *
+ * @example
+ * // Encoding a message
+ * const encodedMessage = await protocol.to(message);
+ *
+ * @example
+ * // Decoding a message
+ * const decodedMessage = await protocol.from(encodedBuffer);
+ */
 export default class QSocketProtocol {
 	private compressor?: TQSocketProtocolCompressor;
 	private maxUncompressedSize: number;
 
-	constructor(
-		compressor?: TQSocketProtocolCompressor,
-		maxUncompressedSize: number = 10 * 1024 // Default 10 KB
-	) {
+	/**
+	 * @description Initializes the `QSocketProtocol` instance with an optional compressor and a specified maximum size for uncompressed data.
+	 *
+	 * @param compressor - Optional object implementing `TQSocketProtocolCompressor` for data compression and decompression.
+	 * @param maxUncompressedSize - Maximum size in bytes for uncompressed data. Default is 10KB.
+	 */
+	constructor(compressor?: TQSocketProtocolCompressor, maxUncompressedSize: number = 10 * 1024) {
 		this.compressor = compressor;
 		this.maxUncompressedSize = maxUncompressedSize;
 	}
 
+	/**
+	 * @description Encodes a message into a `Buffer` or `Uint8Array`, applying optional compression if the message exceeds the maximum uncompressed size.
+	 *
+	 * @param message - A structured protocol message to encode.
+	 * @returns A `Promise` resolving to the encoded message as `Buffer` or `Uint8Array`, or an `EncodeError` on failure.
+	 */
 	public async to(message: IQSocketProtocolMessage): Promise<Buffer | Uint8Array | QSocketProtocolEncodeError> {
 		try {
 			const chunkBuffers: (Buffer | Uint8Array)[] = [];
@@ -65,26 +99,24 @@ export default class QSocketProtocol {
 			const finalBuffers = [...headerBuffers, compressedMessageData];
 			const finalMessageBuffer = this.concatBuffers(finalBuffers);
 
-			// Verify lengths
-			if (uncompressedLength !== messageData.length) {
-				throw new Error('Uncompressed data length mismatch');
-			}
-			if (compressedLength !== compressedMessageData.length) {
-				throw new Error('Compressed data length mismatch');
-			}
-
 			return finalMessageBuffer;
 		} catch (error) {
 			return new QSocketProtocolEncodeError((error as Error).message);
 		}
 	}
 
+	/**
+	 * @description Decodes a message from a `Buffer` or `Uint8Array`, decompressing if necessary, and converts it into structured protocol chunks.
+	 *
+	 * @param buffer - Encoded message data.
+	 * @returns A `Promise` resolving to a structured protocol message, or a `DecodeError` on failure.
+	 */
 	public async from(buffer: Buffer | Uint8Array): Promise<IQSocketProtocolMessage | QSocketProtocolDecodeError> {
 		try {
 			let offset = 0;
 
 			if (buffer.length < 10) {
-				throw new Error('Buffer too small to contain header');
+				throw new QSocketProtocolDecodeError('Buffer too small to contain header');
 			}
 
 			// Read header
@@ -98,14 +130,14 @@ export default class QSocketProtocol {
 			offset += 4;
 
 			if (buffer.length < offset + compressedLength) {
-				throw new Error('Buffer too small for compressed data');
+				throw new QSocketProtocolDecodeError('Buffer too small for compressed data');
 			}
 
 			const compressedMessageData = buffer.subarray(offset, offset + compressedLength);
 			offset += compressedLength;
 
 			if (compressedMessageData.length !== compressedLength) {
-				throw new Error('Compressed data length mismatch');
+				throw new QSocketProtocolDecodeError('Compressed data length mismatch');
 			}
 
 			let messageData: Buffer | Uint8Array = compressedMessageData;
@@ -113,21 +145,21 @@ export default class QSocketProtocol {
 			// Decompress if necessary
 			if (compressionFlag === 1) {
 				if (!this.compressor) {
-					throw new Error('Compressor not available for decompression');
+					throw new QSocketProtocolDecodeError('Compressor not available for decompression');
 				}
 				if (compressionFormat === EQSocketProtocolContentEncoding.GZIP) {
 					messageData = await this.compressor.fromGzip(compressedMessageData);
 				} else if (compressionFormat === EQSocketProtocolContentEncoding.DEFLATE) {
 					messageData = await this.compressor.fromDeflate(compressedMessageData);
 				} else {
-					throw new Error('Unknown compression format');
+					throw new QSocketProtocolDecodeError('Unknown compression format');
 				}
 				if (messageData.length !== uncompressedLength) {
-					throw new Error('Uncompressed data length mismatch after decompression');
+					throw new QSocketProtocolDecodeError('Uncompressed data length mismatch after decompression');
 				}
 			} else {
 				if (messageData.length !== uncompressedLength) {
-					throw new Error('Uncompressed data length mismatch');
+					throw new QSocketProtocolDecodeError('Uncompressed data length mismatch');
 				}
 			}
 
@@ -137,13 +169,13 @@ export default class QSocketProtocol {
 			// Decode each chunk in the message
 			while (messageOffset < messageData.length) {
 				if (messageData.length - messageOffset < 4) {
-					throw new Error('Insufficient data for chunk length');
+					throw new QSocketProtocolDecodeError('Insufficient data for chunk length');
 				}
 				const chunkLength = this.readUInt32(messageData, messageOffset);
 				messageOffset += 4;
 
 				if (messageData.length - messageOffset < chunkLength) {
-					throw new Error('Insufficient data for chunk');
+					throw new QSocketProtocolDecodeError('Insufficient data for chunk');
 				}
 
 				const chunkBuffer = messageData.subarray(messageOffset, messageOffset + chunkLength);
@@ -154,7 +186,7 @@ export default class QSocketProtocol {
 			}
 
 			if (messageOffset !== messageData.length) {
-				throw new Error('Extra data after message parsing');
+				throw new QSocketProtocolDecodeError('Extra data after message parsing');
 			}
 
 			return message;
@@ -163,7 +195,16 @@ export default class QSocketProtocol {
 		}
 	}
 
+	/**
+	 * @description Encodes an individual message chunk, converting metadata and payload into `Buffer` or `Uint8Array` with optional compression.
+	 *
+	 * @param chunk - A protocol chunk with metadata and payload data.
+	 * @returns A `Promise` resolving to the encoded chunk as `Buffer` or `Uint8Array`.
+	 */
 	private async encodeChunk(chunk: IQSocketProtocolChunk): Promise<Buffer | Uint8Array> {
+		if (!chunk.meta || typeof chunk.meta !== 'object') {
+			throw new Error('Invalid chunk meta');
+		}
 		// Encode metadata
 		const metaString = JSON.stringify(chunk.meta);
 		const metaBuffer = this.encodeString(metaString);
@@ -186,6 +227,8 @@ export default class QSocketProtocol {
 			} else {
 				throw new Error('Compressor not available for DEFLATE encoding');
 			}
+		} else if (chunk.payload['Content-Encoding'] !== EQSocketProtocolContentEncoding.RAW) {
+			throw new Error('Unknown Content-Encoding');
 		}
 
 		const payloadLengthBuffer = this.writeUInt32(payloadBuffer.length);
@@ -199,6 +242,12 @@ export default class QSocketProtocol {
 		return chunkBuffer;
 	}
 
+	/**
+	 * @description Decodes a chunk from `Buffer` or `Uint8Array` format back into a protocol chunk, decompressing if necessary.
+	 *
+	 * @param chunkBuffer - Encoded chunk data.
+	 * @returns A `Promise` resolving to a structured protocol chunk.
+	 */
 	private async decodeChunk(chunkBuffer: Buffer | Uint8Array): Promise<IQSocketProtocolChunk> {
 		let offset = 0;
 
@@ -254,6 +303,8 @@ export default class QSocketProtocol {
 				throw new Error('Compressor not available for decompression');
 			}
 			dataBuffer = await this.compressor.fromDeflate(payloadBuffer);
+		} else if (contentEncoding !== EQSocketProtocolContentEncoding.RAW) {
+			throw new Error('Unknown Content-Encoding');
 		}
 
 		// Decode payload data
@@ -271,6 +322,13 @@ export default class QSocketProtocol {
 		return chunk;
 	}
 
+	/**
+	 * @description Encodes payload data according to its specified content type, converting it into a `Buffer` or `Uint8Array`.
+	 *
+	 * @param data - The payload data to encode.
+	 * @param contentType - Content type indicating the format of `data`.
+	 * @returns A `Promise` resolving to the encoded data as `Buffer` or `Uint8Array`.
+	 */
 	private async encodePayloadData(data: TQSocketProtocolPayloadData, contentType: EQSocketProtocolContentType): Promise<Buffer | Uint8Array> {
 		switch (contentType) {
 			case EQSocketProtocolContentType.UNDEFINED:
@@ -281,8 +339,6 @@ export default class QSocketProtocol {
 				return this.writeUInt8(data ? 1 : 0);
 			case EQSocketProtocolContentType.NUMBER:
 				return this.writeDouble(data as number);
-			case EQSocketProtocolContentType.CHAR:
-				return this.encodeString((data as string).charAt(0));
 			case EQSocketProtocolContentType.STRING:
 				return this.encodeString(data as string);
 			case EQSocketProtocolContentType.JSON:
@@ -294,6 +350,13 @@ export default class QSocketProtocol {
 		}
 	}
 
+	/**
+	 * @description Decodes payload data from a `Buffer` or `Uint8Array` based on its specified content type.
+	 *
+	 * @param buffer - Encoded data buffer.
+	 * @param contentType - Content type indicating the format of the buffer.
+	 * @returns The decoded data in its original format.
+	 */
 	private decodePayloadData(buffer: Buffer | Uint8Array, contentType: EQSocketProtocolContentType): any {
 		switch (contentType) {
 			case EQSocketProtocolContentType.UNDEFINED:
@@ -305,8 +368,6 @@ export default class QSocketProtocol {
 				return value !== 0;
 			case EQSocketProtocolContentType.NUMBER:
 				return this.readDouble(buffer, 0);
-			case EQSocketProtocolContentType.CHAR:
-				return this.decodeString(buffer.subarray(0, 1));
 			case EQSocketProtocolContentType.STRING:
 				return this.decodeString(buffer);
 			case EQSocketProtocolContentType.JSON:
@@ -318,6 +379,12 @@ export default class QSocketProtocol {
 		}
 	}
 
+	/**
+	 * @description Encodes a string into a UTF-8 `Buffer` or `Uint8Array`, depending on environment support.
+	 *
+	 * @param str - The string to encode.
+	 * @returns Encoded UTF-8 representation as `Buffer` or `Uint8Array`.
+	 */
 	private encodeString(str: string): Buffer | Uint8Array {
 		if (typeof TextEncoder !== 'undefined') {
 			const encoder = new TextEncoder();
@@ -335,6 +402,12 @@ export default class QSocketProtocol {
 		}
 	}
 
+	/**
+	 * @description Decodes a UTF-8 encoded `Buffer` or `Uint8Array` back into a string.
+	 *
+	 * @param buffer - UTF-8 encoded buffer.
+	 * @returns The decoded string.
+	 */
 	private decodeString(buffer: Buffer | Uint8Array): string {
 		if (typeof TextDecoder !== 'undefined') {
 			const decoder = new TextDecoder('utf8');
@@ -351,6 +424,12 @@ export default class QSocketProtocol {
 		}
 	}
 
+	/**
+	 * @description Encodes a 32-bit unsigned integer into a `Buffer` or `Uint8Array` in big-endian format.
+	 *
+	 * @param value - The integer to encode.
+	 * @returns The encoded integer as `Buffer` or `Uint8Array`.
+	 */
 	private writeUInt32(value: number): Buffer | Uint8Array {
 		if (hasBuffer) {
 			const buffer = Buffer.alloc(4);
@@ -364,6 +443,13 @@ export default class QSocketProtocol {
 		}
 	}
 
+	/**
+	 * @description Reads a 32-bit unsigned integer from a `Buffer` or `Uint8Array` in big-endian format.
+	 *
+	 * @param buffer - The buffer containing the integer.
+	 * @param offset - The offset position within the buffer to start reading.
+	 * @returns The decoded integer.
+	 */
 	private readUInt32(buffer: Buffer | Uint8Array, offset: number): number {
 		if (hasBuffer && isBuffer(buffer)) {
 			return buffer.readUInt32BE(offset);
@@ -373,16 +459,35 @@ export default class QSocketProtocol {
 		}
 	}
 
+	/**
+	 * @description Writes an 8-bit unsigned integer into a `Buffer` or `Uint8Array`.
+	 *
+	 * @param value - The integer to write.
+	 * @returns The encoded integer as `Buffer` or `Uint8Array`.
+	 */
 	private writeUInt8(value: number): Buffer | Uint8Array {
 		const buffer = new Uint8Array(1);
 		buffer[0] = value & 0xff;
 		return buffer;
 	}
 
+	/**
+	 * @description Reads an 8-bit unsigned integer from a `Buffer` or `Uint8Array`.
+	 *
+	 * @param buffer - The buffer containing the integer.
+	 * @param offset - The offset position within the buffer to start reading.
+	 * @returns The decoded integer.
+	 */
 	private readUInt8(buffer: Buffer | Uint8Array, offset: number): number {
 		return buffer[offset];
 	}
 
+	/**
+	 * @description Encodes a double-precision floating-point number into a `Buffer` or `Uint8Array`.
+	 *
+	 * @param value - The floating-point number to encode.
+	 * @returns The encoded value as `Buffer` or `Uint8Array`.
+	 */
 	private writeDouble(value: number): Buffer | Uint8Array {
 		if (hasBuffer) {
 			const buffer = Buffer.alloc(8);
@@ -396,6 +501,13 @@ export default class QSocketProtocol {
 		}
 	}
 
+	/**
+	 * @description Reads a double-precision floating-point number from a `Buffer` or `Uint8Array`.
+	 *
+	 * @param buffer - The buffer containing the double value.
+	 * @param offset - The offset position within the buffer to start reading.
+	 * @returns The decoded floating-point number.
+	 */
 	private readDouble(buffer: Buffer | Uint8Array, offset: number): number {
 		if (hasBuffer && isBuffer(buffer)) {
 			return buffer.readDoubleBE(offset);
@@ -405,6 +517,12 @@ export default class QSocketProtocol {
 		}
 	}
 
+	/**
+	 * @description Concatenates multiple `Buffer` or `Uint8Array` instances into a single `Buffer` or `Uint8Array`.
+	 *
+	 * @param buffers - An array of buffers to concatenate.
+	 * @returns A single concatenated `Buffer` or `Uint8Array`.
+	 */
 	private concatBuffers(buffers: (Buffer | Uint8Array)[]): Buffer | Uint8Array {
 		if (hasBuffer) {
 			return Buffer.concat(buffers.map((buf) => (isBuffer(buf) ? buf : Buffer.from(buf))));

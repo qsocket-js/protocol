@@ -1,101 +1,96 @@
 /**
- * Варианты данных.
- * Определяет основной тип сообщения: передача данных или управление.
+ * Message type options.
+ * Defines the primary message type: data transfer or control.
  */
 export const enum EQSocketProtocolMessageType {
 	/**
-	 * Протокол передачи данных. Сообщение несет полезную нагрузку с данными.
-	 * Бинарное значение: 00
+	 * Data transfer protocol. Message carries a payload with data.
+	 * Binary value: 00
 	 */
 	DATA = 0b00,
 
 	/**
-	 * Протокол управления. Сообщение предназначено для управления соединением.
-	 * Бинарное значение: 01
+	 * Control protocol. Message is intended for connection management.
+	 * Binary value: 01
 	 */
 	CONTROL = 0b01,
 
 	/**
-	 * Протокол подтверждения доставки
-	 * Бинарное значение: 10
+	 * Acknowledgment protocol.
+	 * Confirms delivery of a message.
+	 * Binary value: 10
 	 */
 	ACK = 0b10,
 }
 
 /**
- * Формат данных полезной нагрузки.
- * Используется для указания типа содержимого в протоколе QSOCKET.
+ * Payload content format.
+ * Used to specify the type of content in the QSOCKET protocol.
  */
 export const enum EQSocketProtocolContentType {
 	/**
-	 * Отсутствие данных. Используется, когда полезная нагрузка не требуется.
-	 * Бинарное значение: 000
+	 * No data. Used when payload is not required.
+	 * Binary value: 000
 	 */
 	UNDEFINED = 0b000,
 
 	/**
-	 * Отсутствие данных. Используется, когда полезная нагрузка не требуется.
-	 * Бинарное значение: 001
+	 * Null data. Explicitly indicates no value in payload.
+	 * Binary value: 001
 	 */
 	NULL = 0b001,
 
 	/**
-	 * Числовое значение. Полезная нагрузка интерпретируется как число.
-	 * Бинарное значение: 010
+	 * Boolean value. Payload is interpreted as a boolean.
+	 * Binary value: 010
 	 */
 	BOOLEAN = 0b010,
 
 	/**
-	 * Числовое значение. Полезная нагрузка интерпретируется как число.
-	 * Бинарное значение: 011
+	 * Numeric value. Payload is interpreted as a number.
+	 * Binary value: 011
 	 */
 	NUMBER = 0b011,
 
 	/**
-	 * Символ (один байт). Полезная нагрузка интерпретируется как одиночный символ.
-	 * Бинарное значение: 100
+	 * String. Payload is interpreted as a UTF-8 encoded string.
+	 * Binary value: 100
 	 */
-	CHAR = 0b100,
+	STRING = 0b100,
 
 	/**
-	 * Строка. Полезная нагрузка интерпретируется как строка в кодировке UTF-8.
-	 * Бинарное значение: 101
+	 * Object. Payload represents a serialized JSON object.
+	 * Binary value: 101
 	 */
-	STRING = 0b101,
+	JSON = 0b101,
 
 	/**
-	 * Объект. Полезная нагрузка представляет собой сериализованный JSON-объект.
-	 * Бинарное значение: 110
+	 * Buffer. Payload is transmitted as binary data (Buffer).
+	 * Binary value: 110
 	 */
-	JSON = 0b110,
-
-	/**
-	 * Буфер. Полезная нагрузка передается как двоичные данные (Buffer).
-	 * Бинарное значение: 111
-	 */
-	BUFFER = 0b111,
+	BUFFER = 0b110,
 }
 
 /**
- * Формат декодирования данных полезной нагрузки.
- * Определяет тип сжатия, применяемый к полезной нагрузке.
+ * Payload encoding format.
+ * Defines the compression type applied to the payload.
  */
 export const enum EQSocketProtocolContentEncoding {
 	/**
-	 * Обычный буфер без сжатия.
-	 * Бинарное значение: 00
+	 * Raw buffer without compression.
+	 * Binary value: 00
 	 */
 	RAW = 0b00,
 
 	/**
-	 * Сжатие с использованием gzip. Полезная нагрузка закодирована с gzip.
-	 * Бинарное значение: 01
+	 * Compressed with gzip. Payload is encoded with gzip.
+	 * Binary value: 01
 	 */
 	GZIP = 0b01,
 
 	/**
-	 * Сжатие с использованием deflate. Полезная нагрузка закодирована с deflate.
-	 * Бинарное значение: 10
+	 * Compressed with deflate. Payload is encoded with deflate.
+	 * Binary value: 10
 	 */
 	DEFLATE = 0b10,
 }

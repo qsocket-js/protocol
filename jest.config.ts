@@ -14,7 +14,7 @@ const config: Config = {
 
 	// Задаем окружение для тестов
 	testEnvironment: 'node',
-
+	collectCoverage: true,
 	// Указываем путь к исходникам для покрытия кода
 	collectCoverageFrom: ['src/**/*.ts', '!src/**/*.d.ts'],
 
