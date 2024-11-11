@@ -10,7 +10,7 @@ const config: Config = {
 	collectCoverage: true,
 	collectCoverageFrom: ['src/**/*.ts', '!src/**/*.d.ts'],
 	coverageDirectory: 'coverage',
-	coverageReporters: ['json', 'json-summary', 'lcov', 'text', 'clover'],
+	coverageReporters: ['json', 'json-summary', 'text', 'clover'],
 	testPathIgnorePatterns: ['/node_modules/', '/coverage/'],
 	moduleFileExtensions: ['ts', 'js', 'json', 'node'],
 	moduleNameMapper: {

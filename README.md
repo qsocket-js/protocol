@@ -2,7 +2,7 @@
 
 ![npm version](https://img.shields.io/npm/v/@qsocket/protocol) ![npm downloads](https://img.shields.io/npm/dm/@qsocket/protocol) ![GitHub license](https://img.shields.io/github/license/qsocket-js/protocol)
 
-![Statements](https://github.com/qsocket-js/protocol/main/coverage/badge-statements.svg) ![Branches](./coverage/badge-branches.svg) ![Functions](./coverage/badge-functions.svg) ![Lines](./coverage/badge-lines.svg)
+![Statements](./coverage/badge-statements.svg) ![Branches](./coverage/badge-branches.svg) ![Functions](./coverage/badge-functions.svg) ![Lines](./coverage/badge-lines.svg)
 
 **@qsocket/protocol** — is a powerful protocol for data transmission in the [QSocket](https://www.npmjs.com/package/@qsocket) library, providing efficient interprocess communication with support for various data types and encoding/decoding formats. The package is specifically designed for QSocket and provides core classes and types for handling any message content in buffer format.
 
