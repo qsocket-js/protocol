@@ -1,7 +1,7 @@
 {
 	"name": "@qsocket/protocol",
 	"description": "QSocket Protocol: A versatile protocol for transmitting messages of any type in buffer format, designed exclusively for the QSocket ecosystem. Enables efficient, high-speed data transfer between processes and across client-server connections.",
-	"version": "0.0.1-alpha",
+	"version": "0.0.1-rc",
 	"keywords": [
 		"qsocket",
 		"protocol",

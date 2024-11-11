@@ -40,7 +40,7 @@ export type TQSocketProtocolPayloadData = undefined | null | boolean | number | 
  * @description Payload Interface
  * Contains data as well as information for further processing
  */
-interface IQSocketProtocolPayload {
+export interface IQSocketProtocolPayload {
 	/**
 	 * Data to be transmitted.
 	 */
@@ -133,13 +133,12 @@ export type IQSocketProtocolMessageMeta = IQSocketProtocolMessageMetaData | IQSo
  *
  * Represents the essential properties that all messages in the QSOCKET protocol must have.
  */
-export interface IQSocketProtocolChunk {
+export interface IQSocketProtocolChunk<T extends IQSocketProtocolMessageMeta = IQSocketProtocolMessageMeta> {
 	/**
 	 * Contains metadata for the message.
 	 * Provides necessary information like namespace, event name, timestamps, etc.
 	 */
-	meta: IQSocketProtocolMessageMeta;
-
+	meta: T;
 	/**
 	 * Payload data of the message.
 	 */
@@ -149,7 +148,7 @@ export interface IQSocketProtocolChunk {
 /**
  * @description A complete Q-SOCKET protocol message, represented as an array of chunks.
  */
-export type IQSocketProtocolMessage = IQSocketProtocolChunk[];
+export type IQSocketProtocolMessage<T extends IQSocketProtocolMessageMeta = IQSocketProtocolMessageMeta> = IQSocketProtocolChunk<T>[];
 
 /**
  * @description Compressor interface for handling data compression and decompression.

@@ -7,6 +7,7 @@ export type {
 	IQSocketProtocolMessageMetaControl,
 	IQSocketProtocolMessageMetaData,
 	TQSocketProtocolCompressor,
+	IQSocketProtocolPayload,
 	TQSocketProtocolPayloadData,
 } from './bin/protocol.types';
 // Re-export all enums

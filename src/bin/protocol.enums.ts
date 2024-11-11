@@ -2,7 +2,7 @@
  * Message type options.
  * Defines the primary message type: data transfer or control.
  */
-export const enum EQSocketProtocolMessageType {
+export enum EQSocketProtocolMessageType {
 	/**
 	 * Data transfer protocol. Message carries a payload with data.
 	 * Binary value: 00
@@ -27,7 +27,7 @@ export const enum EQSocketProtocolMessageType {
  * Payload content format.
  * Used to specify the type of content in the QSOCKET protocol.
  */
-export const enum EQSocketProtocolContentType {
+export enum EQSocketProtocolContentType {
 	/**
 	 * No data. Used when payload is not required.
 	 * Binary value: 000
@@ -75,7 +75,7 @@ export const enum EQSocketProtocolContentType {
  * Payload encoding format.
  * Defines the compression type applied to the payload.
  */
-export const enum EQSocketProtocolContentEncoding {
+export enum EQSocketProtocolContentEncoding {
 	/**
 	 * Raw buffer without compression.
 	 * Binary value: 00
