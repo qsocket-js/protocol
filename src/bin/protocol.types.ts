@@ -1,50 +1,39 @@
 import { EQSocketProtocolContentEncoding, EQSocketProtocolContentType, EQSocketProtocolMessageType } from './protocol.enums';
 
 //#region PAYLOAD
-/**
- * @description Universal type for describing all permissible JSON values,
- * including primitives, arrays, and JSON objects.
- */
-export type IJSON = string | number | boolean | null | IJSONArray | IJSONObject;
-
-/**
- * @description Type representing an array of JSON values.
- * The array can contain elements of any type allowed in JSON.
- */
-export interface IJSONArray extends Array<IJSON> {}
-
-/**
- * @description Type representing a JSON object.
- * Keys must be strings, and values can be of any JSON-compatible type.
- */
-export interface IJSONObject {
-	[key: string]: IJSON;
-}
 
 /**
  * @description Data types that can be transmitted through the Q-SOCKET protocol.
- * Includes primitives, a universal JSON type, Buffer, and symbol.
+ * Includes primitives, a universal JSON type, and Buffer.
  *
- * - `undefined`: Absence of value.
+ * - `undefined/void`: Absence of value.
  * - `null`: Explicit indication of no value.
  * - `boolean`: Logical `true` or `false`.
  * - `number`: Numeric value.
- * - `symbol`: Symbol, a unique identifier.
  * - `string`: Text value.
  * - `IJSON`: Universal JSON type, including primitives, arrays, and objects.
  * - `Buffer`: Binary data.
  */
-export type TQSocketProtocolPayloadData = undefined | null | boolean | number | symbol | string | IJSON | Buffer;
+export type TQSocketProtocolPayloadData =
+	| undefined
+	| void
+	| null
+	| boolean
+	| number
+	| string
+	| object
+	| Array<undefined | null | boolean | number | string | object>
+	| Buffer;
 
 /**
  * @description Payload Interface
  * Contains data as well as information for further processing
  */
-export interface IQSocketProtocolPayload {
+export interface IQSocketProtocolPayload<T extends TQSocketProtocolPayloadData = TQSocketProtocolPayloadData> {
 	/**
 	 * Data to be transmitted.
 	 */
-	data: TQSocketProtocolPayloadData;
+	data: T;
 
 	/**
 	 * Specifies the data format of the payload.
@@ -118,12 +107,6 @@ export interface IQSocketProtocolMessageMetaControl extends IQSocketProtocolMess
 	 * Specifies that this is a control message type.
 	 */
 	type: EQSocketProtocolMessageType.CONTROL;
-
-	/**
-	 * Namespace associated with the control event.
-	 * Provides a logical separation of control events.
-	 */
-	namespace: string;
 }
 
 export type IQSocketProtocolMessageMeta = IQSocketProtocolMessageMetaData | IQSocketProtocolMessageMetaAck | IQSocketProtocolMessageMetaControl;
@@ -133,22 +116,28 @@ export type IQSocketProtocolMessageMeta = IQSocketProtocolMessageMetaData | IQSo
  *
  * Represents the essential properties that all messages in the QSOCKET protocol must have.
  */
-export interface IQSocketProtocolChunk<T extends IQSocketProtocolMessageMeta = IQSocketProtocolMessageMeta> {
+export interface IQSocketProtocolChunk<
+	M extends IQSocketProtocolMessageMeta = IQSocketProtocolMessageMeta,
+	P extends IQSocketProtocolPayload = IQSocketProtocolPayload,
+> {
 	/**
 	 * Contains metadata for the message.
 	 * Provides necessary information like namespace, event name, timestamps, etc.
 	 */
-	meta: T;
+	meta: M;
 	/**
 	 * Payload data of the message.
 	 */
-	payload: IQSocketProtocolPayload;
+	payload: P;
 }
 
 /**
  * @description A complete Q-SOCKET protocol message, represented as an array of chunks.
  */
-export type IQSocketProtocolMessage<T extends IQSocketProtocolMessageMeta = IQSocketProtocolMessageMeta> = IQSocketProtocolChunk<T>[];
+export type IQSocketProtocolMessage<
+	T extends IQSocketProtocolMessageMeta = IQSocketProtocolMessageMeta,
+	P extends IQSocketProtocolPayload = IQSocketProtocolPayload,
+> = IQSocketProtocolChunk<T, P>[];
 
 /**
  * @description Compressor interface for handling data compression and decompression.

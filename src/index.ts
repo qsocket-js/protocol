@@ -1,6 +1,5 @@
 // Re-export all types and interfaces
 export type {
-	IJSON,
 	IQSocketProtocolChunk,
 	IQSocketProtocolMessage,
 	IQSocketProtocolMessageMetaAck,
