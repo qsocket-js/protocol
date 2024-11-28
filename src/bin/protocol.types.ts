@@ -1,4 +1,4 @@
-import { EQSocketProtocolContentEncoding, EQSocketProtocolContentType, EQSocketProtocolMessageType } from './protocol.enums';
+import { EQSocketProtocolContentType, EQSocketProtocolMessageType } from './protocol.enums';
 
 //#region PAYLOAD
 
@@ -40,12 +40,6 @@ export interface IQSocketProtocolPayload<T extends TQSocketProtocolPayloadData =
 	 * Defines the type of data in the `payload` field, such as `STRING`, `JSON`, or `BUFFER`.
 	 */
 	'Content-Type': EQSocketProtocolContentType;
-
-	/**
-	 * Specifies the encoding of the payload.
-	 * Defines the type of compression used for `payload`, such as `GZIP` or `DEFLATE`.
-	 */
-	'Content-Encoding': EQSocketProtocolContentEncoding;
 }
 //#endregion
 
@@ -139,36 +133,9 @@ export type IQSocketProtocolMessage<
 	P extends IQSocketProtocolPayload = IQSocketProtocolPayload,
 > = IQSocketProtocolChunk<T, P>[];
 
-/**
- * @description Compressor interface for handling data compression and decompression.
- * Defines methods for compressing and decompressing data in both GZIP and DEFLATE formats.
- */
-export interface TQSocketProtocolCompressor {
-	/**
-	 * Compresses data using the GZIP algorithm.
-	 * @param data Data to be compressed.
-	 * @returns A promise that resolves to the compressed data.
-	 */
-	toGzip(data: Buffer | Uint8Array): Promise<Buffer | Uint8Array>;
-
-	/**
-	 * Decompresses data that was compressed with the GZIP algorithm.
-	 * @param data Compressed data.
-	 * @returns A promise that resolves to the decompressed data.
-	 */
-	fromGzip(data: Buffer | Uint8Array): Promise<Buffer | Uint8Array>;
-
-	/**
-	 * Compresses data using the DEFLATE algorithm.
-	 * @param data Data to be compressed.
-	 * @returns A promise that resolves to the compressed data.
-	 */
-	toDeflate(data: Buffer | Uint8Array): Promise<Buffer | Uint8Array>;
-
-	/**
-	 * Decompresses data that was compressed with the DEFLATE algorithm.
-	 * @param data Compressed data.
-	 * @returns A promise that resolves to the decompressed data.
-	 */
-	fromDeflate(data: Buffer | Uint8Array): Promise<Buffer | Uint8Array>;
-}
+/** Внутренний формат хранения промежуточных данных */
+export type TChunkBinary = {
+	encoding: number;
+	meta: Uint8Array;
+	data: Uint8Array;
+};

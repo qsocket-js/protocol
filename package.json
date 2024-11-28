@@ -1,7 +1,7 @@
 {
 	"name": "@qsocket/protocol",
 	"description": "QSocket Protocol: A versatile protocol for transmitting messages of any type in buffer format, designed exclusively for the QSocket ecosystem. Enables efficient, high-speed data transfer between processes and across client-server connections.",
-	"version": "0.0.1-rc",
+	"version": "0.0.1-rc3",
 	"keywords": [
 		"qsocket",
 		"protocol",
@@ -41,9 +41,7 @@
 		"build": "tsup",
 		"lint": "eslint \"**/*.{ts,tsx}\"",
 		"lint:fix": "eslint \"**/*.{ts,tsx}\" --fix --color",
-		"format": "prettier --write src/",
-		"test": "jest --coverage",
-		"coverage:badge": "jest-coverage-badges"
+		"format": "prettier --write src/"
 	},
 	"repository": {
 		"type": "git",

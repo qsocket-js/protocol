@@ -70,27 +70,3 @@ export enum EQSocketProtocolContentType {
 	 */
 	BUFFER = 0b110,
 }
-
-/**
- * Payload encoding format.
- * Defines the compression type applied to the payload.
- */
-export enum EQSocketProtocolContentEncoding {
-	/**
-	 * Raw buffer without compression.
-	 * Binary value: 00
-	 */
-	RAW = 0b00,
-
-	/**
-	 * Compressed with gzip. Payload is encoded with gzip.
-	 * Binary value: 01
-	 */
-	GZIP = 0b01,
-
-	/**
-	 * Compressed with deflate. Payload is encoded with deflate.
-	 * Binary value: 10
-	 */
-	DEFLATE = 0b10,
-}

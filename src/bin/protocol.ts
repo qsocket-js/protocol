@@ -1,540 +1,419 @@
-//#region Import types
-import type { IQSocketProtocolChunk, IQSocketProtocolMessage, TQSocketProtocolCompressor, TQSocketProtocolPayloadData } from './protocol.types';
-//#endregion
+// Import necessary types, enums, and error classes
+import type { IQSocketProtocolChunk, IQSocketProtocolMessage, TChunkBinary } from './protocol.types';
+import { EQSocketProtocolContentType } from './protocol.enums';
+import { QSocketProtocolEncodeError, QSocketProtocolDecodeError } from './protocol.errors';
 
-//#region Import modules
-import { EQSocketProtocolContentEncoding, EQSocketProtocolContentType } from './protocol.enums';
-import { QSocketProtocolDecodeError, QSocketProtocolEncodeError } from './protocol.errors';
-import { hasBuffer, isBuffer } from './protocol.helpers';
-//#endregion
+//#region Text Encoding/Decoding
 
 /**
- * The `QSocketProtocol` class implements a protocol for serializing and deserializing messages
- * for data transmission, supporting compression and various payload data types.
+ * Encodes a string into a Uint8Array using the most efficient available method.
+ * Falls back to manual UTF-8 encoding if neither TextEncoder nor Buffer is available.
  *
- * This class provides methods for encoding (`to`) and decoding (`from`) messages, allowing users to
- * efficiently transmit data as structured messages. It handles payloads with support for data types
- * such as JSON, strings, binary buffers, and more.
- *
- * Key Features:
- * - Message serialization with support for metadata and payload data.
- * - Message decoding, including header validation and decompression if necessary.
- * - Message compression support (GZIP and DEFLATE) to reduce data size during transmission.
- * - Configurable maximum uncompressed data size and support for custom compressors.
- *
- * Usage:
- * Useful in high-performance data transmission systems where minimizing latency and optimizing
- * data size is critical. Compatible with both Node.js and browser environments.
- *
- * @example
- * // Creating an instance with a GZIP compressor
- * const protocol = new QSocketProtocol(compressor, 1024);
- *
- * @example
- * // Encoding a message
- * const encodedMessage = await protocol.to(message);
- *
- * @example
- * // Decoding a message
- * const decodedMessage = await protocol.from(encodedBuffer);
+ * @returns {(str: string) => Uint8Array} A function that takes a string and returns its Uint8Array representation.
  */
-export default class QSocketProtocol {
-	private compressor?: TQSocketProtocolCompressor;
-	private maxUncompressedSize: number;
-
-	/**
-	 * @description Initializes the `QSocketProtocol` instance with an optional compressor and a specified maximum size for uncompressed data.
-	 *
-	 * @param compressor - Optional object implementing `TQSocketProtocolCompressor` for data compression and decompression.
-	 * @param maxUncompressedSize - Maximum size in bytes for uncompressed data. Default is 10KB.
-	 */
-	constructor(compressor?: TQSocketProtocolCompressor, maxUncompressedSize: number = 10 * 1024) {
-		this.compressor = compressor;
-		this.maxUncompressedSize = maxUncompressedSize;
+const encodeString = ((): ((str: string) => Uint8Array) => {
+	// Use TextEncoder if available (modern browsers and Node.js v11+)
+	if (typeof TextEncoder !== 'undefined') {
+		const encoder = new TextEncoder();
+		return (str: string): Uint8Array => encoder.encode(str);
 	}
 
-	/**
-	 * @description Encodes a message into a `Buffer` or `Uint8Array`, applying optional compression if the message exceeds the maximum uncompressed size.
-	 *
-	 * @param message - A structured protocol message to encode.
-	 * @returns A `Promise` resolving to the encoded message as `Buffer` or `Uint8Array`, or an `EncodeError` on failure.
-	 */
-	public async to(message: IQSocketProtocolMessage): Promise<Buffer | Uint8Array | QSocketProtocolEncodeError> {
-		try {
-			const chunkBuffers: (Buffer | Uint8Array)[] = [];
-
-			// Encode each chunk in the message
-			for (const chunk of message) {
-				const chunkBuffer = await this.encodeChunk(chunk);
-				const chunkLengthBuffer = this.writeUInt32(chunkBuffer.length);
-				const chunkEntryBuffer = this.concatBuffers([chunkLengthBuffer, chunkBuffer]);
-				chunkBuffers.push(chunkEntryBuffer);
-			}
-
-			// Concatenate all chunk buffers
-			const messageData = this.concatBuffers(chunkBuffers);
-			let compressedMessageData = messageData;
-			let compressionFlag = 0;
-			let compressionFormat = EQSocketProtocolContentEncoding.RAW;
-			const uncompressedLength = messageData.length;
-			let compressedLength = messageData.length;
-
-			// Apply compression if necessary
-			if (this.compressor && uncompressedLength > this.maxUncompressedSize) {
-				compressedMessageData = await this.compressor.toGzip(messageData);
-				compressedLength = compressedMessageData.length;
-				compressionFlag = 1;
-				compressionFormat = EQSocketProtocolContentEncoding.GZIP;
-			}
-
-			// Create header
-			const compressionFlagByte = this.writeUInt8(compressionFlag);
-			const compressionFormatByte = this.writeUInt8(compressionFormat);
-			const uncompressedLengthBuffer = this.writeUInt32(uncompressedLength);
-			const compressedLengthBuffer = this.writeUInt32(compressedLength);
-
-			const headerBuffers = [compressionFlagByte, compressionFormatByte, uncompressedLengthBuffer, compressedLengthBuffer];
-
-			// Combine header and message data
-			const finalBuffers = [...headerBuffers, compressedMessageData];
-			const finalMessageBuffer = this.concatBuffers(finalBuffers);
-
-			return finalMessageBuffer;
-		} catch (error) {
-			return new QSocketProtocolEncodeError((error as Error).message);
-		}
-	}
-
-	/**
-	 * @description Decodes a message from a `Buffer` or `Uint8Array`, decompressing if necessary, and converts it into structured protocol chunks.
-	 *
-	 * @param buffer - Encoded message data.
-	 * @returns A `Promise` resolving to a structured protocol message, or a `DecodeError` on failure.
-	 */
-	public async from(buffer: Buffer | Uint8Array): Promise<IQSocketProtocolMessage | QSocketProtocolDecodeError> {
-		try {
-			let offset = 0;
-
-			if (buffer.length < 10) {
-				throw new QSocketProtocolDecodeError('Buffer too small to contain header');
-			}
-
-			// Read header
-			const compressionFlag = this.readUInt8(buffer, offset);
-			offset += 1;
-			const compressionFormat = this.readUInt8(buffer, offset);
-			offset += 1;
-			const uncompressedLength = this.readUInt32(buffer, offset);
-			offset += 4;
-			const compressedLength = this.readUInt32(buffer, offset);
-			offset += 4;
-
-			if (buffer.length < offset + compressedLength) {
-				throw new QSocketProtocolDecodeError('Buffer too small for compressed data');
-			}
-
-			const compressedMessageData = buffer.subarray(offset, offset + compressedLength);
-			offset += compressedLength;
-
-			if (compressedMessageData.length !== compressedLength) {
-				throw new QSocketProtocolDecodeError('Compressed data length mismatch');
-			}
-
-			let messageData: Buffer | Uint8Array = compressedMessageData;
-
-			// Decompress if necessary
-			if (compressionFlag === 1) {
-				if (!this.compressor) {
-					throw new QSocketProtocolDecodeError('Compressor not available for decompression');
-				}
-				if (compressionFormat === EQSocketProtocolContentEncoding.GZIP) {
-					messageData = await this.compressor.fromGzip(compressedMessageData);
-				} else if (compressionFormat === EQSocketProtocolContentEncoding.DEFLATE) {
-					messageData = await this.compressor.fromDeflate(compressedMessageData);
-				} else {
-					throw new QSocketProtocolDecodeError('Unknown compression format');
-				}
-				if (messageData.length !== uncompressedLength) {
-					throw new QSocketProtocolDecodeError('Uncompressed data length mismatch after decompression');
-				}
-			} else {
-				if (messageData.length !== uncompressedLength) {
-					throw new QSocketProtocolDecodeError('Uncompressed data length mismatch');
-				}
-			}
-
-			let messageOffset = 0;
-			const message: IQSocketProtocolMessage = [];
-
-			// Decode each chunk in the message
-			while (messageOffset < messageData.length) {
-				if (messageData.length - messageOffset < 4) {
-					throw new QSocketProtocolDecodeError('Insufficient data for chunk length');
-				}
-				const chunkLength = this.readUInt32(messageData, messageOffset);
-				messageOffset += 4;
-
-				if (messageData.length - messageOffset < chunkLength) {
-					throw new QSocketProtocolDecodeError('Insufficient data for chunk');
-				}
-
-				const chunkBuffer = messageData.subarray(messageOffset, messageOffset + chunkLength);
-				messageOffset += chunkLength;
-
-				const chunk = await this.decodeChunk(chunkBuffer);
-				message.push(chunk);
-			}
-
-			if (messageOffset !== messageData.length) {
-				throw new QSocketProtocolDecodeError('Extra data after message parsing');
-			}
-
-			return message;
-		} catch (error) {
-			return new QSocketProtocolDecodeError((error as Error).message);
-		}
-	}
-
-	/**
-	 * @description Encodes an individual message chunk, converting metadata and payload into `Buffer` or `Uint8Array` with optional compression.
-	 *
-	 * @param chunk - A protocol chunk with metadata and payload data.
-	 * @returns A `Promise` resolving to the encoded chunk as `Buffer` or `Uint8Array`.
-	 */
-	private async encodeChunk(chunk: IQSocketProtocolChunk): Promise<Buffer | Uint8Array> {
-		if (!chunk.meta || typeof chunk.meta !== 'object') {
-			throw new Error('Invalid chunk meta');
-		}
-		// Encode metadata
-		const metaString = JSON.stringify(chunk.meta);
-		const metaBuffer = this.encodeString(metaString);
-		const metaLengthBuffer = this.writeUInt32(metaBuffer.length);
-
-		// Encode payload data
-		const dataBuffer = await this.encodePayloadData(chunk.payload.data, chunk.payload['Content-Type']);
-
-		// Apply content encoding if necessary
-		let payloadBuffer: Buffer | Uint8Array = dataBuffer;
-		if (chunk.payload['Content-Encoding'] === EQSocketProtocolContentEncoding.GZIP) {
-			if (this.compressor) {
-				payloadBuffer = await this.compressor.toGzip(dataBuffer);
-			} else {
-				throw new Error('Compressor not available for GZIP encoding');
-			}
-		} else if (chunk.payload['Content-Encoding'] === EQSocketProtocolContentEncoding.DEFLATE) {
-			if (this.compressor) {
-				payloadBuffer = await this.compressor.toDeflate(dataBuffer);
-			} else {
-				throw new Error('Compressor not available for DEFLATE encoding');
-			}
-		} else if (chunk.payload['Content-Encoding'] !== EQSocketProtocolContentEncoding.RAW) {
-			throw new Error('Unknown Content-Encoding');
-		}
-
-		const payloadLengthBuffer = this.writeUInt32(payloadBuffer.length);
-
-		const contentTypeByte = this.writeUInt8(chunk.payload['Content-Type']);
-		const contentEncodingByte = this.writeUInt8(chunk.payload['Content-Encoding']);
-
-		const buffers = [metaLengthBuffer, metaBuffer, payloadLengthBuffer, contentTypeByte, contentEncodingByte, payloadBuffer];
-		const chunkBuffer = this.concatBuffers(buffers);
-
-		return chunkBuffer;
-	}
-
-	/**
-	 * @description Decodes a chunk from `Buffer` or `Uint8Array` format back into a protocol chunk, decompressing if necessary.
-	 *
-	 * @param chunkBuffer - Encoded chunk data.
-	 * @returns A `Promise` resolving to a structured protocol chunk.
-	 */
-	private async decodeChunk(chunkBuffer: Buffer | Uint8Array): Promise<IQSocketProtocolChunk> {
-		let offset = 0;
-
-		if (chunkBuffer.length < 4) {
-			throw new Error('Chunk buffer too small for meta length');
-		}
-
-		const metaLength = this.readUInt32(chunkBuffer, offset);
-		offset += 4;
-
-		if (chunkBuffer.length < offset + metaLength) {
-			throw new Error('Chunk buffer too small for metadata');
-		}
-
-		const metaBuffer = chunkBuffer.subarray(offset, offset + metaLength);
-		offset += metaLength;
-		const metaString = this.decodeString(metaBuffer);
-		const meta = JSON.parse(metaString);
-
-		if (chunkBuffer.length < offset + 4) {
-			throw new Error('Chunk buffer too small for payload length');
-		}
-
-		const payloadLength = this.readUInt32(chunkBuffer, offset);
-		offset += 4;
-
-		if (chunkBuffer.length < offset + 2) {
-			throw new Error('Chunk buffer too small for content type and encoding');
-		}
-
-		const contentType = this.readUInt8(chunkBuffer, offset);
-		offset += 1;
-
-		const contentEncoding = this.readUInt8(chunkBuffer, offset);
-		offset += 1;
-
-		if (chunkBuffer.length < offset + payloadLength) {
-			throw new Error('Chunk buffer too small for payload data');
-		}
-
-		const payloadBuffer = chunkBuffer.subarray(offset, offset + payloadLength);
-		offset += payloadLength;
-
-		// Apply content decoding if necessary
-		let dataBuffer = payloadBuffer;
-		if (contentEncoding === EQSocketProtocolContentEncoding.GZIP) {
-			if (!this.compressor) {
-				throw new Error('Compressor not available for decompression');
-			}
-			dataBuffer = await this.compressor.fromGzip(payloadBuffer);
-		} else if (contentEncoding === EQSocketProtocolContentEncoding.DEFLATE) {
-			if (!this.compressor) {
-				throw new Error('Compressor not available for decompression');
-			}
-			dataBuffer = await this.compressor.fromDeflate(payloadBuffer);
-		} else if (contentEncoding !== EQSocketProtocolContentEncoding.RAW) {
-			throw new Error('Unknown Content-Encoding');
-		}
-
-		// Decode payload data
-		const data = this.decodePayloadData(dataBuffer, contentType);
-
-		const chunk: IQSocketProtocolChunk = {
-			meta: meta,
-			payload: {
-				data: data,
-				'Content-Type': contentType,
-				'Content-Encoding': contentEncoding,
-			},
+	// Fallback to Buffer if available (Node.js environment)
+	if (typeof Buffer !== 'undefined') {
+		return (str: string): Uint8Array => {
+			const buffer = Buffer.from(str, 'utf8'); // Encode string to Buffer
+			const copy = new Uint8Array(buffer.length); // Create a new Uint8Array with the same length
+			copy.set(buffer); // Copy Buffer contents to Uint8Array
+			return copy; // Return the copied Uint8Array
 		};
-
-		return chunk;
 	}
 
-	/**
-	 * @description Encodes payload data according to its specified content type, converting it into a `Buffer` or `Uint8Array`.
-	 *
-	 * @param data - The payload data to encode.
-	 * @param contentType - Content type indicating the format of `data`.
-	 * @returns A `Promise` resolving to the encoded data as `Buffer` or `Uint8Array`.
-	 */
-	private async encodePayloadData(data: TQSocketProtocolPayloadData, contentType: EQSocketProtocolContentType): Promise<Buffer | Uint8Array> {
-		switch (contentType) {
-			case EQSocketProtocolContentType.UNDEFINED:
-				return new Uint8Array(0);
-			case EQSocketProtocolContentType.NULL:
-				return new Uint8Array(0);
-			case EQSocketProtocolContentType.BOOLEAN:
-				return this.writeUInt8(data ? 1 : 0);
-			case EQSocketProtocolContentType.NUMBER:
-				return this.writeDouble(data as number);
-			case EQSocketProtocolContentType.STRING:
-				return this.encodeString(data as string);
-			case EQSocketProtocolContentType.JSON:
-				return this.encodeString(JSON.stringify(data));
-			case EQSocketProtocolContentType.BUFFER:
-				return isBuffer(data) ? data : new Uint8Array(data as unknown as Uint8Array);
-			default:
-				throw new Error('Unknown content type');
-		}
-	}
+	// Manual UTF-8 encoding as a last resort
+	return (str: string): Uint8Array => {
+		const maxLength = str.length * 4; // Maximum possible length (each character can take up to 4 bytes in UTF-8)
+		const result = new Uint8Array(maxLength); // Initialize the result array
+		let offset = 0; // Current position in the result array
 
-	/**
-	 * @description Decodes payload data from a `Buffer` or `Uint8Array` based on its specified content type.
-	 *
-	 * @param buffer - Encoded data buffer.
-	 * @param contentType - Content type indicating the format of the buffer.
-	 * @returns The decoded data in its original format.
-	 */
-	private decodePayloadData(buffer: Buffer | Uint8Array, contentType: EQSocketProtocolContentType): any {
-		switch (contentType) {
-			case EQSocketProtocolContentType.UNDEFINED:
-				return undefined;
-			case EQSocketProtocolContentType.NULL:
-				return null;
-			case EQSocketProtocolContentType.BOOLEAN:
-				const value = this.readUInt8(buffer, 0);
-				return value !== 0;
-			case EQSocketProtocolContentType.NUMBER:
-				return this.readDouble(buffer, 0);
-			case EQSocketProtocolContentType.STRING:
-				return this.decodeString(buffer);
-			case EQSocketProtocolContentType.JSON:
-				return JSON.parse(this.decodeString(buffer));
-			case EQSocketProtocolContentType.BUFFER:
-				return buffer;
-			default:
-				throw new Error('Unknown content type');
-		}
-	}
+		for (let i = 0; i < str.length; i++) {
+			let charCode = str.charCodeAt(i); // Get UTF-16 code unit
 
-	/**
-	 * @description Encodes a string into a UTF-8 `Buffer` or `Uint8Array`, depending on environment support.
-	 *
-	 * @param str - The string to encode.
-	 * @returns Encoded UTF-8 representation as `Buffer` or `Uint8Array`.
-	 */
-	private encodeString(str: string): Buffer | Uint8Array {
-		if (typeof TextEncoder !== 'undefined') {
-			const encoder = new TextEncoder();
-			return encoder.encode(str);
-		} else if (hasBuffer) {
-			return Buffer.from(str, 'utf8');
-		} else {
-			// Fallback for environments without TextEncoder or Buffer
-			const utf8 = unescape(encodeURIComponent(str));
-			const result = new Uint8Array(utf8.length);
-			for (let i = 0; i < utf8.length; i++) {
-				result[i] = utf8.charCodeAt(i);
+			if (charCode < 0x80) {
+				// 1-byte ASCII character
+				result[offset++] = charCode;
+			} else if (charCode < 0x800) {
+				// 2-byte UTF-8 character
+				result[offset++] = 0xc0 | (charCode >> 6);
+				result[offset++] = 0x80 | (charCode & 0x3f);
+			} else if (charCode < 0xd800 || charCode >= 0xe000) {
+				// 3-byte UTF-8 character (excluding surrogate pairs)
+				result[offset++] = 0xe0 | (charCode >> 12);
+				result[offset++] = 0x80 | ((charCode >> 6) & 0x3f);
+				result[offset++] = 0x80 | (charCode & 0x3f);
+			} else {
+				// 4-byte UTF-8 character (surrogate pairs)
+				if (++i >= str.length) throw new Error('Invalid surrogate pair in string');
+				// Combine surrogate pair into a single code point
+				charCode = 0x10000 + (((charCode & 0x3ff) << 10) | (str.charCodeAt(i) & 0x3ff));
+				result[offset++] = 0xf0 | (charCode >> 18);
+				result[offset++] = 0x80 | ((charCode >> 12) & 0x3f);
+				result[offset++] = 0x80 | ((charCode >> 6) & 0x3f);
+				result[offset++] = 0x80 | (charCode & 0x3f);
 			}
-			return result;
 		}
+
+		// Slice the result to the actual length used
+		const resultBuffer = result.slice(0, offset);
+		return resultBuffer;
+	};
+})();
+
+/**
+ * Decodes a Uint8Array into a string using the most efficient available method.
+ * Falls back to manual UTF-8 decoding if neither TextDecoder nor Buffer is available.
+ *
+ * @returns {(bytes: Uint8Array) => string} A function that takes a Uint8Array and returns its string representation.
+ */
+const decodeString = ((): ((bytes: Uint8Array) => string) => {
+	// Use TextDecoder if available (modern browsers and Node.js v11+)
+	if (typeof TextDecoder !== 'undefined') {
+		const decoder = new TextDecoder('utf-8');
+		return (bytes: Uint8Array): string => decoder.decode(bytes);
 	}
 
-	/**
-	 * @description Decodes a UTF-8 encoded `Buffer` or `Uint8Array` back into a string.
-	 *
-	 * @param buffer - UTF-8 encoded buffer.
-	 * @returns The decoded string.
-	 */
-	private decodeString(buffer: Buffer | Uint8Array): string {
-		if (typeof TextDecoder !== 'undefined') {
-			const decoder = new TextDecoder('utf8');
-			return decoder.decode(buffer);
-		} else if (hasBuffer && isBuffer(buffer)) {
-			return buffer.toString('utf8');
-		} else {
-			// Fallback for environments without TextDecoder or Buffer
-			let result = '';
-			for (let i = 0; i < buffer.length; i++) {
-				result += String.fromCharCode(buffer[i]);
+	// Fallback to Buffer if available (Node.js environment)
+	if (typeof Buffer !== 'undefined') {
+		return (bytes: Uint8Array): string => Buffer.from(bytes).toString('utf8');
+	}
+
+	// Manual UTF-8 decoding as a last resort
+	return (bytes: Uint8Array): string => {
+		let result = ''; // Initialize the result string
+		let i = 0; // Current position in the byte array
+
+		while (i < bytes.length) {
+			const byte1 = bytes[i++]; // Read the first byte
+
+			if (byte1 < 0x80) {
+				// 1-byte ASCII character
+				result += String.fromCharCode(byte1);
+			} else if (byte1 < 0xe0) {
+				// 2-byte UTF-8 character
+				const byte2 = bytes[i++];
+				if ((byte2 & 0xc0) !== 0x80) throw new Error('Invalid UTF-8 sequence');
+				result += String.fromCharCode(((byte1 & 0x1f) << 6) | (byte2 & 0x3f));
+			} else if (byte1 < 0xf0) {
+				// 3-byte UTF-8 character
+				const byte2 = bytes[i++];
+				const byte3 = bytes[i++];
+				if ((byte2 & 0xc0) !== 0x80 || (byte3 & 0xc0) !== 0x80) throw new Error('Invalid UTF-8 sequence');
+				result += String.fromCharCode(((byte1 & 0x0f) << 12) | ((byte2 & 0x3f) << 6) | (byte3 & 0x3f));
+			} else {
+				// 4-byte UTF-8 character (surrogate pairs)
+				const byte2 = bytes[i++];
+				const byte3 = bytes[i++];
+				const byte4 = bytes[i++];
+				if ((byte2 & 0xc0) !== 0x80 || (byte3 & 0xc0) !== 0x80 || (byte4 & 0xc0) !== 0x80) throw new Error('Invalid UTF-8 sequence');
+
+				const codePoint = ((byte1 & 0x07) << 18) | ((byte2 & 0x3f) << 12) | ((byte3 & 0x3f) << 6) | (byte4 & 0x3f);
+
+				// Convert code point to surrogate pair for UTF-16
+				const highSurrogate = 0xd800 + ((codePoint - 0x10000) >> 10);
+				const lowSurrogate = 0xdc00 + ((codePoint - 0x10000) & 0x3ff);
+
+				result += String.fromCharCode(highSurrogate, lowSurrogate);
 			}
-			return decodeURIComponent(escape(result));
 		}
-	}
 
-	/**
-	 * @description Encodes a 32-bit unsigned integer into a `Buffer` or `Uint8Array` in big-endian format.
-	 *
-	 * @param value - The integer to encode.
-	 * @returns The encoded integer as `Buffer` or `Uint8Array`.
-	 */
-	private writeUInt32(value: number): Buffer | Uint8Array {
-		if (hasBuffer) {
-			const buffer = Buffer.alloc(4);
-			buffer.writeUInt32BE(value, 0);
-			return buffer;
-		} else {
-			const buffer = new Uint8Array(4);
-			const view = new DataView(buffer.buffer);
-			view.setUint32(0, value, false);
-			return buffer;
+		return result;
+	};
+})();
+
+//#endregion
+
+//#region Integer Encoding/Decoding
+
+/**
+ * Writes a 32-bit unsigned integer into a Uint8Array at the specified offset in big-endian format.
+ *
+ * @param {Uint8Array} buffer - The buffer to write the integer into.
+ * @param {number} offset - The position in the buffer to start writing.
+ * @param {number} value - The 32-bit unsigned integer to write.
+ */
+function writeUInt32BE(buffer: Uint8Array, offset: number, value: number): void {
+	buffer[offset] = (value >>> 24) & 0xff;
+	buffer[offset + 1] = (value >>> 16) & 0xff;
+	buffer[offset + 2] = (value >>> 8) & 0xff;
+	buffer[offset + 3] = value & 0xff;
+}
+
+/**
+ * Reads a 32-bit unsigned integer from a Uint8Array at the specified offset in big-endian format.
+ *
+ * @param {Uint8Array} buffer - The buffer to read the integer from.
+ * @param {number} offset - The position in the buffer to start reading.
+ * @returns {number} The 32-bit unsigned integer read from the buffer.
+ */
+function readUInt32BE(buffer: Uint8Array, offset: number): number {
+	return ((buffer[offset] << 24) | (buffer[offset + 1] << 16) | (buffer[offset + 2] << 8) | buffer[offset + 3]) >>> 0;
+}
+
+//#endregion
+
+//#region Floating-Point Number Encoding/Decoding
+
+/**
+ * A static buffer used for temporary storage during floating-point number encoding/decoding.
+ * This buffer should only be used within the encoding/decoding functions to avoid unintended side effects.
+ */
+const staticDataViewBuffer = new Uint8Array(8);
+const staticDataView = new DataView(staticDataViewBuffer.buffer);
+
+/**
+ * Writes a 64-bit floating-point number into a Uint8Array at the specified offset in big-endian format.
+ *
+ * @param {Uint8Array} buffer - The buffer to write the floating-point number into.
+ * @param {number} offset - The position in the buffer to start writing.
+ * @param {number} value - The 64-bit floating-point number to write.
+ */
+function writeDoubleBE(buffer: Uint8Array, offset: number, value: number): void {
+	staticDataView.setFloat64(0, value, false); // false for big-endian
+	buffer.set(staticDataViewBuffer, offset); // Copy the bytes into the target buffer
+}
+
+/**
+ * Reads a 64-bit floating-point number from a Uint8Array at the specified offset in big-endian format.
+ *
+ * @param {Uint8Array} buffer - The buffer to read the floating-point number from.
+ * @param {number} offset - The position in the buffer to start reading.
+ * @returns {number} The 64-bit floating-point number read from the buffer.
+ */
+function readDoubleBE(buffer: Uint8Array, offset: number): number {
+	staticDataViewBuffer.set(buffer.subarray(offset, offset + 8)); // Copy 8 bytes to the static buffer
+	return staticDataView.getFloat64(0, false); // false for big-endian
+}
+
+//#endregion
+
+//#region Encoding
+
+/**
+ * Serializes an IQSocketProtocolMessage into a single Uint8Array.
+ *
+ * @param {IQSocketProtocolMessage} message - The message to serialize.
+ * @returns {Uint8Array} The serialized binary representation of the message.
+ * @throws {QSocketProtocolEncodeError} If an encoding error occurs.
+ */
+export function to(message: IQSocketProtocolMessage): Uint8Array {
+	try {
+		// Calculate the total length required for the serialized buffer
+		let totalLength = 0;
+		const chunkBinaries: TChunkBinary[] = new Array(message.length);
+
+		let chunk: IQSocketProtocolChunk;
+		let meta: Uint8Array;
+		let data: Uint8Array;
+
+		// Serialize each chunk in the message
+		for (let i = 0; i < message.length; i++) {
+			chunk = message[i];
+
+			// Encode metadata and payload
+			meta = encodeString(JSON.stringify(chunk.meta));
+			data = encodePayload(chunk);
+
+			// Accumulate the total length:
+			// 1 byte for encoding, 4 bytes for meta length, meta.length bytes,
+			// 4 bytes for data length, and data.length bytes
+			totalLength += 1 + 4 + meta.length + 4 + data.length;
+
+			// Store the serialized chunk data
+			chunkBinaries[i] = {
+				encoding: chunk.payload['Content-Type'],
+				meta,
+				data,
+			};
 		}
-	}
 
-	/**
-	 * @description Reads a 32-bit unsigned integer from a `Buffer` or `Uint8Array` in big-endian format.
-	 *
-	 * @param buffer - The buffer containing the integer.
-	 * @param offset - The offset position within the buffer to start reading.
-	 * @returns The decoded integer.
-	 */
-	private readUInt32(buffer: Buffer | Uint8Array, offset: number): number {
-		if (hasBuffer && isBuffer(buffer)) {
-			return buffer.readUInt32BE(offset);
-		} else {
-			const view = new DataView(buffer.buffer, buffer.byteOffset + offset, 4);
-			return view.getUint32(0, false);
+		// Create a buffer to hold the entire serialized message
+		const messageBinary = new Uint8Array(totalLength);
+		let offset = 0;
+		let chunkBinary: TChunkBinary;
+
+		// Write each serialized chunk into the buffer
+		for (let i = 0; i < chunkBinaries.length; i++) {
+			chunkBinary = chunkBinaries[i];
+
+			// Write the content type encoding (1 byte)
+			messageBinary[offset] = chunkBinary.encoding;
+			offset += 1;
+
+			// Write the length of the metadata (4 bytes)
+			writeUInt32BE(messageBinary, offset, chunkBinary.meta.length);
+			offset += 4;
+
+			// Write the metadata bytes
+			messageBinary.set(chunkBinary.meta, offset);
+			offset += chunkBinary.meta.length;
+
+			// Write the length of the payload data (4 bytes)
+			writeUInt32BE(messageBinary, offset, chunkBinary.data.length);
+			offset += 4;
+
+			// Write the payload data bytes
+			messageBinary.set(chunkBinary.data, offset);
+			offset += chunkBinary.data.length;
 		}
-	}
 
-	/**
-	 * @description Writes an 8-bit unsigned integer into a `Buffer` or `Uint8Array`.
-	 *
-	 * @param value - The integer to write.
-	 * @returns The encoded integer as `Buffer` or `Uint8Array`.
-	 */
-	private writeUInt8(value: number): Buffer | Uint8Array {
-		const buffer = new Uint8Array(1);
-		buffer[0] = value & 0xff;
-		return buffer;
-	}
-
-	/**
-	 * @description Reads an 8-bit unsigned integer from a `Buffer` or `Uint8Array`.
-	 *
-	 * @param buffer - The buffer containing the integer.
-	 * @param offset - The offset position within the buffer to start reading.
-	 * @returns The decoded integer.
-	 */
-	private readUInt8(buffer: Buffer | Uint8Array, offset: number): number {
-		return buffer[offset];
-	}
-
-	/**
-	 * @description Encodes a double-precision floating-point number into a `Buffer` or `Uint8Array`.
-	 *
-	 * @param value - The floating-point number to encode.
-	 * @returns The encoded value as `Buffer` or `Uint8Array`.
-	 */
-	private writeDouble(value: number): Buffer | Uint8Array {
-		if (hasBuffer) {
-			const buffer = Buffer.alloc(8);
-			buffer.writeDoubleBE(value, 0);
-			return buffer;
-		} else {
-			const buffer = new Uint8Array(8);
-			const view = new DataView(buffer.buffer);
-			view.setFloat64(0, value, false);
-			return buffer;
-		}
-	}
-
-	/**
-	 * @description Reads a double-precision floating-point number from a `Buffer` or `Uint8Array`.
-	 *
-	 * @param buffer - The buffer containing the double value.
-	 * @param offset - The offset position within the buffer to start reading.
-	 * @returns The decoded floating-point number.
-	 */
-	private readDouble(buffer: Buffer | Uint8Array, offset: number): number {
-		if (hasBuffer && isBuffer(buffer)) {
-			return buffer.readDoubleBE(offset);
-		} else {
-			const view = new DataView(buffer.buffer, buffer.byteOffset + offset, 8);
-			return view.getFloat64(0, false);
-		}
-	}
-
-	/**
-	 * @description Concatenates multiple `Buffer` or `Uint8Array` instances into a single `Buffer` or `Uint8Array`.
-	 *
-	 * @param buffers - An array of buffers to concatenate.
-	 * @returns A single concatenated `Buffer` or `Uint8Array`.
-	 */
-	private concatBuffers(buffers: (Buffer | Uint8Array)[]): Buffer | Uint8Array {
-		if (hasBuffer) {
-			return Buffer.concat(buffers.map((buf) => (isBuffer(buf) ? buf : Buffer.from(buf))));
-		} else {
-			let totalLength = buffers.reduce((sum, buf) => sum + buf.length, 0);
-			const result = new Uint8Array(totalLength);
-			let offset = 0;
-			for (const buf of buffers) {
-				result.set(buf, offset);
-				offset += buf.length;
-			}
-			return result;
-		}
+		return messageBinary; // Return the fully serialized message
+	} catch (error) {
+		// Wrap and rethrow any encoding errors
+		throw new QSocketProtocolEncodeError((error as Error).message);
 	}
 }
+
+/**
+ * Encodes the payload of a protocol chunk into a Uint8Array based on its content type.
+ *
+ * @param {IQSocketProtocolChunk} chunk - The protocol chunk containing the payload to encode.
+ * @returns {Uint8Array} The encoded payload data.
+ * @throws {Error} If the content type is unknown or the data type is invalid.
+ */
+function encodePayload(chunk: IQSocketProtocolChunk): Uint8Array {
+	const { data } = chunk.payload;
+	const contentType = chunk.payload['Content-Type'];
+
+	switch (contentType) {
+		case EQSocketProtocolContentType.UNDEFINED:
+		case EQSocketProtocolContentType.NULL:
+			return new Uint8Array(0); // No data for undefined or null
+
+		case EQSocketProtocolContentType.BOOLEAN:
+			return new Uint8Array([data ? 1 : 0]); // 1 byte representing boolean value
+
+		case EQSocketProtocolContentType.NUMBER:
+			const numberBuffer = new Uint8Array(8); // 8 bytes for 64-bit float
+			writeDoubleBE(numberBuffer, 0, data as number); // Encode the number
+			return numberBuffer;
+
+		case EQSocketProtocolContentType.STRING:
+			return encodeString(data as string); // Encode the string
+
+		case EQSocketProtocolContentType.JSON:
+			return encodeString(JSON.stringify(data)); // Encode the JSON string
+
+		case EQSocketProtocolContentType.BUFFER:
+			if (data instanceof Uint8Array) {
+				return data; // Return the existing Uint8Array
+			} else if (data instanceof Buffer) {
+				return new Uint8Array(data); // Convert Buffer to Uint8Array
+			} else {
+				throw new Error('Invalid data type for BUFFER content type'); // Unsupported data type
+			}
+
+		default:
+			throw new Error('Unknown content type'); // Unsupported content type
+	}
+}
+
+//#endregion
+
+//#region Decoding
+
+/**
+ * Deserializes a Uint8Array into an IQSocketProtocolMessage.
+ *
+ * @param {Uint8Array} buffer - The binary data to deserialize.
+ * @returns {IQSocketProtocolMessage} The deserialized message.
+ * @throws {QSocketProtocolDecodeError} If a decoding error occurs.
+ */
+export function from(buffer: Uint8Array): IQSocketProtocolMessage {
+	try {
+		const message: IQSocketProtocolMessage = []; // Initialize the message array
+		let offset = 0; // Current position in the buffer
+
+		// Iterate through the buffer until all data is processed
+		while (offset < buffer.length) {
+			// Read the content type encoding (1 byte)
+			const contentType = buffer[offset];
+			offset += 1;
+
+			// Read the length of the metadata (4 bytes)
+			const metaLength = readUInt32BE(buffer, offset);
+			offset += 4;
+
+			// Read and decode the metadata
+			const metaString = decodeString(buffer.slice(offset, offset + metaLength));
+			let meta: any;
+			try {
+				meta = JSON.parse(metaString); // Parse the JSON metadata
+			} catch (error) {
+				console.log('Failed to parse metadata');
+				throw error; // Rethrow the parsing error
+			}
+
+			offset += metaLength; // Move the offset past the metadata
+
+			// Read the length of the payload data (4 bytes)
+			const dataLength = readUInt32BE(buffer, offset);
+			offset += 4;
+
+			// Read and decode the payload data
+			const data = decodePayloadData(buffer, contentType, offset, dataLength);
+			offset += dataLength; // Move the offset past the payload data
+
+			// Push the decoded chunk into the message array
+			message.push({
+				meta,
+				payload: {
+					data,
+					'Content-Type': contentType,
+				},
+			});
+		}
+
+		return message; // Return the fully decoded message
+	} catch (error) {
+		// Wrap and rethrow any decoding errors
+		throw new QSocketProtocolDecodeError((error as Error).message);
+	}
+}
+
+/**
+ * Decodes the payload data of a protocol chunk based on its content type.
+ *
+ * @param {Uint8Array} buffer - The binary data containing the payload.
+ * @param {EQSocketProtocolContentType} contentType - The content type identifier.
+ * @param {number} offset - The position in the buffer where the payload data starts.
+ * @param {number} length - The length of the payload data in bytes.
+ * @returns {any} The decoded payload data.
+ * @throws {Error} If the content type is unknown.
+ */
+function decodePayloadData(buffer: Uint8Array, contentType: EQSocketProtocolContentType, offset: number, length: number): any {
+	switch (contentType) {
+		case EQSocketProtocolContentType.UNDEFINED:
+			return undefined; // No data for undefined
+
+		case EQSocketProtocolContentType.NULL:
+			return null; // No data for null
+
+		case EQSocketProtocolContentType.BOOLEAN:
+			return buffer[offset] !== 0; // Decode boolean value
+
+		case EQSocketProtocolContentType.NUMBER:
+			return readDoubleBE(buffer, offset); // Decode 64-bit float
+
+		case EQSocketProtocolContentType.STRING:
+			return decodeString(buffer.slice(offset, offset + length)); // Decode string
+
+		case EQSocketProtocolContentType.JSON:
+			return JSON.parse(decodeString(buffer.slice(offset, offset + length))); // Decode JSON string
+
+		case EQSocketProtocolContentType.BUFFER:
+			return buffer.slice(offset, offset + length); // Return a slice of the buffer
+
+		default:
+			throw new Error('Unknown content type'); // Unsupported content type
+	}
+}
+
+//#endregion
